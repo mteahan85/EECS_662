@@ -2,19 +2,38 @@
 
 #! Megan Teahan
 #! 2617777
-#! EECS 662 Project 2 Part 1
+#! EECS 662 Project 2 Part 2
 #! October 8th, 2015
 
 #! CFAE
 (define-type CFAE
   (num (n number?))
   (binop (name op?) (lhs CFAE?) (rhs CFAE?))
-  (app (fun-expr CFAE?) (expr CFAE?))
+  (app (fun-expr CFAE?) (arg-expr CFAE?))
   (fun (id symbol?) (body CFAE?))
   (if0 (c CFAE?) (t CFAE?) (e CFAE?))
   (id (name symbol?))
   (op (name symbol?))
 )
+
+#! CFWAE
+(define-type CFWAE
+  (wnum (n number?))
+  (wbinop (name wop?) (lhs CFWAE?) (rhs CFWAE?))
+  (wapp (fun-expr CFWAE?) (arg-expr CFWAE?))
+  (wfun (id symbol?) (body CFWAE?))
+  (wif0 (c CFWAE?) (t CFWAE?) (e CFWAE?))
+  (wwith (expr binding?) (body CFWAE?))
+  (wcond0 (conds list?) (def CFWAE?))
+  (wid (name symbol?))
+  (wop (name symbol?))
+)
+
+#! Binding
+(define-type binding
+  (binded (id symbol?) (bind-expr CFWAE?))
+ )
+
 
 #! Deferred Sub
 (define-type DefrdSub
@@ -43,45 +62,30 @@
                      (binopr-op (car op-table))
                      (lookup op-name (cdr op-table)))))))
 
-#! Parses input
-(define parse-cfae
-  (lambda (s_expr)
-    (cond
-      ((number? s_expr) (num s_expr))
-      ((symbol? s_expr) (id s_expr))
-      ((list? s_expr)
-       (case (car s_expr)
-         ((+) (binop
-               (op `add)
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((-) (binop
-               (op `sub) 
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((*) (binop
-               (op `mult)
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((/) (binop
-               (op `div)
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((fun) (fun (cadr s_expr)
-                     (parse-cfae (caddr s_expr))))
-         ((app) (app (parse-cfae (cadr s_expr))
-                     (parse-cfae (caddr s_expr))))
-         ((if0) (if0 (parse-cfae (cadr s_expr))
-                     (parse-cfae (caddr s_expr))
-                     (parse-cfae (cadddr s_expr))))
-         (else (error "exhausted parser")))
-       )
-      (error "exhausted parser")
+#! Elaborator that turns CFWAE to CFAE
+(define elab-cfwae
+  (lambda (e)
+    (type-case CFWAE e
+      (wnum (n) (num n))
+      (wbinop (oper l r) (binop (elab-cfwae oper) (elab-cfwae l) (elab-cfwae r)))
+      (wapp (fun_expr arg_expr) (app (elab-cfwae fun_expr) (elab-cfwae arg_expr)))
+      (wfun (id body) (fun id (elab-cfwae body)))
+      (wwith (bind body) (app (fun (binded-id bind) (elab-cfwae body)) (elab-cfwae (binded-bind-expr bind))))
+      (wif0 (c t e) (if0 (elab-cfwae c) (elab-cfwae t) (elab-cfwae e)))
+      (wcond0 (conds def) (if0 (create-ifs conds) (elab-cfwae)))
+      (wid (v) (id v))
+      (wop (o) (op o))
       )
     )
   )
+        
+(define create-ifs
+  (lambda (conds)
+    conds ;;will need to decide on structure for conds to come in as. maybe a list of pairs?
+          ;-- also will need to understand what is different between a prelude and a regular definition is. Is it defining a function in an abstract syntax and storing that list in a table?
+    )
+  )
 
-                 
 #! evaluates input
 (define eval-cfae
   (lambda (s_expr)
