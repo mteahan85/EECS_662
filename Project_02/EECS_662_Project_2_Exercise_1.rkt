@@ -97,16 +97,16 @@
   (lambda (cfae ds)
     (type-case CFAE cfae
       (num (n) (num n))
-      (binop (bo l r) (num ((lookup (op-name bo) binop-table) (num-n (interp-cfae l ds)) (num-n (interp-cfae r ds)))))
+      (binop (bo l r) (num (check-arith-error (lookup (op-name bo) binop-table)  (interp-cfae l ds)  (interp-cfae r ds))))
       (app (fun_expr arg_expr)
            (let ([fun_val (interp-cfae fun_expr ds)])
-             (if (fun? fun_val)
-             (interp-cfae (fun-body fun_val)
-                          (aSub (fun-id fun_val)
-                                (interp-cfae arg_expr ds)
-                                ds))
-             (error 'interp-cfae "not a function")
-             )))
+             (if (num? fun_val)
+                 (error 'interp-cfae "not a function/can't apply to number")
+                 (interp-cfae (fun-body fun_val)
+                              (aSub (fun-id fun_val)
+                                    (interp-cfae arg_expr ds)
+                                    ds)))
+             ))
       (if0 (c t e ) (if (eq? (num 0) (interp-cfae c ds))
                         (interp-cfae t)
                         (interp-cfae e)))
@@ -117,7 +117,14 @@
     )
   )
 
-
+(define check-arith-error
+  (lambda (oper l r)
+    (if (num? (and l r))
+        (oper (num-n l) (num-n r))
+        (error 'interp-cfae "cannot perform arithmetic on functions")
+    )
+  )
+  )
 
 
 #! Looks up variable in DefrdSub list      
@@ -134,7 +141,10 @@
       )
     )
   )
-          
+
+
     
-(parse-cfae '(app (fun x (+ 1 x)) 3))
-(eval-cfae '(app (fun x (+ 1 x)) 3))
+;(parse-cfae '(app (fun x (+ 1 x)) 3))
+;(eval-cfae '(app (fun x (+ 1 x)) 3))
+(eval-cfae '(+ 3 (fun x x)))
+(eval-cfae '(+ (fun x x) (fun x x)))
