@@ -24,14 +24,17 @@
   (wfun (id symbol?) (body CFWAE?))
   (wif0 (c CFWAE?) (t CFWAE?) (e CFWAE?))
   (wwith (expr binding?) (body CFWAE?))
-  (wcond0 (conds list?) (def CFWAE?))
+  (wcond0 (conds list?) (ed CFWAE?))
   (wid (name symbol?))
   (wop (name symbol?))
 )
+;;figure out structure for cond in CFWAE. Once figured out, easy to convert over to CFAE
 
-#! Binding
+
+#! Binding - for with
 (define-type binding
-  (binded (id symbol?) (bind-expr CFWAE?))
+  (with-bind (id symbol?) (bind-expr CFWAE?))
+  (cond-bind (bind-c CFWAE?) (bind-e CFWAE?))
  )
 
 
@@ -54,6 +57,12 @@
     )
   )
 
+(define prelude
+  (aSub 'pi (num 3.14159)
+        (aSub 'area (fun 'x (binop (op 'mult) (id 'pi) (binop (op 'mult) (id 'x) (id 'x))))
+              (aSub 'inc (fun 'x (binop (op 'add) (id 'x) (num 1))) (mtsub)))))
+   
+
 #! Looks up the symbol/operator corresponding to the op-name
 (define lookup
   (lambda (op-name op-table)
@@ -70,26 +79,33 @@
       (wbinop (oper l r) (binop (elab-cfwae oper) (elab-cfwae l) (elab-cfwae r)))
       (wapp (fun_expr arg_expr) (app (elab-cfwae fun_expr) (elab-cfwae arg_expr)))
       (wfun (id body) (fun id (elab-cfwae body)))
-      (wwith (bind body) (app (fun (binded-id bind) (elab-cfwae body)) (elab-cfwae (binded-bind-expr bind))))
+      (wwith (bind body) (app (fun (with-bind-id bind) (elab-cfwae body)) (elab-cfwae (with-bind-bind-expr bind))))
       (wif0 (c t e) (if0 (elab-cfwae c) (elab-cfwae t) (elab-cfwae e)))
-      (wcond0 (conds def) (if0 (create-ifs conds) (elab-cfwae)))
+      (wcond0 (conds ed) (create-if0 conds ed))
       (wid (v) (id v))
       (wop (o) (op o))
       )
     )
   )
         
-(define create-ifs
-  (lambda (conds)
-    conds ;;will need to decide on structure for conds to come in as. maybe a list of pairs?
-          ;-- also will need to understand what is different between a prelude and a regular definition is. Is it defining a function in an abstract syntax and storing that list in a table?
+
+;(cond0 ()* (else 'item)
+
+
+(define create-if0
+  (lambda (conds ed) ;list
+    (if (empty? conds)
+        (elab-cfwae ed)
+        (type-case binding (car conds)
+          (cond-bind (c e) (if0 (elab-cfwae c) (elab-cfwae e) (create-if0 (cdr conds) ed)))
+          (with-bind (i e) e)))
     )
   )
 
 #! evaluates input
 (define eval-cfae
   (lambda (s_expr)
-    (interp-cfae (parse-cfae s_expr) (mtsub)) ;; in excerise 2 call elab before interpreter 
+    (interp-cfae (elab-cfwae s_expr) prelude) ;; in excerise 2 call elab before interpreter 
     )
   )
 
@@ -101,19 +117,19 @@
   (lambda (cfae ds)
     (type-case CFAE cfae
       (num (n) (num n))
-      (binop (bo l r) (num ((lookup (op-name bo) binop-table) (num-n (interp-cfae l ds)) (num-n (interp-cfae r ds)))))
+      (binop (bo l r) (num (check-arith-error (lookup (op-name bo) binop-table)  (interp-cfae l ds)  (interp-cfae r ds))))
       (app (fun_expr arg_expr)
            (let ([fun_val (interp-cfae fun_expr ds)])
-             (if (fun? fun_val)
-             (interp-cfae (fun-body fun_val)
-                          (aSub (fun-id fun_val)
-                                (interp-cfae arg_expr ds)
-                                ds))
-             (error 'interp-cfae "not a function")
-             )))
-      (if0 (c t e ) (if (eq? (num 0) (interp-cfae c ds))
-                        (interp-cfae t)
-                        (interp-cfae e)))
+            (if (num? fun_val)
+                 (error 'interp-cfae "not a function/can't apply to number")
+                 (interp-cfae (fun-body fun_val)
+                              (aSub (fun-id fun_val)
+                                    (interp-cfae arg_expr ds)
+                                    ds)))
+             ))
+      (if0 (c t e ) (if (equal? (num 0) (interp-cfae c ds))
+                        (interp-cfae t ds)
+                        (interp-cfae e ds)))
       (fun (id body) (fun id body))
       (op (o) o)
       (id (v)(lookup-ds v ds))
@@ -121,7 +137,14 @@
     )
   )
 
-
+(define check-arith-error
+  (lambda (oper l r)
+    (if (num? (and l r))
+        (oper (num-n l) (num-n r))
+        (error 'interp-cfae "cannot perform arithmetic on functions")
+    )
+  )
+  )
 
 
 #! Looks up variable in DefrdSub list      
@@ -138,7 +161,11 @@
       )
     )
   )
-          
-    
-(parse-cfae '(app (fun x (+ 1 x)) 3))
-(eval-cfae '(app (fun x (+ 1 x)) 3))
+ ;(if0 (num 0) (num 3) (if0 (num 0) (num 4) (num 5)))
+;cond structure
+;(cond '( (cond-bind (num 1) (num 3)) (cond-bind (num 2) (num 4)) (num 3))
+;(lookup-ds 'area prelude)
+;(interp-cfae (app (id 'inc) (id 'pi)) prelude)
+(elab-cfwae (wcond0 (list (cond-bind (wnum 0) (wnum 3)) (cond-bind (wnum 0) (wnum 4))) (wnum 5)))
+(interp-cfae (elab-cfwae (wcond0 (list (cond-bind (wnum 1) (wnum 3)) (cond-bind (wnum 1) (wnum 4))) (wnum 5))) prelude)
+(eval-cfae (wcond0 (list (cond-bind (wnum 1) (wnum 3)) (cond-bind (wnum 1) (wnum 4))) (wnum 5)))

@@ -43,7 +43,7 @@
                      (binopr-op (car op-table))
                      (lookup op-name (cdr op-table)))))))
 
-#! Parses input
+#! Parses input -- will need to eliminate parser and add input
 (define parse-cfae
   (lambda (s_expr)
     (cond
@@ -107,7 +107,7 @@
                                     (interp-cfae arg_expr ds)
                                     ds)))
              ))
-      (if0 (c t e ) (if (eq? (num 0) (interp-cfae c ds))
+      (if0 (c t e ) (if (equal? (num 0) (interp-cfae c ds))
                         (interp-cfae t)
                         (interp-cfae e)))
       (fun (id body) (fun id body))
@@ -144,7 +144,7 @@
 
 
     
-;(parse-cfae '(app (fun x (+ 1 x)) 3))
+(parse-cfae '(app (fun x (+ 1 x)) 3))
 ;(eval-cfae '(app (fun x (+ 1 x)) 3))
 (eval-cfae '(+ 3 (fun x x)))
 (eval-cfae '(+ (fun x x) (fun x x)))
