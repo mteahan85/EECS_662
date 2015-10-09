@@ -43,55 +43,6 @@
                      (binopr-op (car op-table))
                      (lookup op-name (cdr op-table)))))))
 
-#! Parses input -- will need to eliminate parser and add input
-(define parse-cfae
-  (lambda (s_expr)
-    (cond
-      ((number? s_expr) (num s_expr))
-      ((symbol? s_expr) (id s_expr))
-      ((list? s_expr)
-       (case (car s_expr)
-         ((+) (binop
-               (op `add)
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((-) (binop
-               (op `sub) 
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((*) (binop
-               (op `mult)
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((/) (binop
-               (op `div)
-               (parse-cfae (cadr s_expr))
-               (parse-cfae (caddr s_expr))))
-         ((fun) (fun (cadr s_expr)
-                     (parse-cfae (caddr s_expr))))
-         ((app) (app (parse-cfae (cadr s_expr))
-                     (parse-cfae (caddr s_expr))))
-         ((if0) (if0 (parse-cfae (cadr s_expr))
-                     (parse-cfae (caddr s_expr))
-                     (parse-cfae (cadddr s_expr))))
-         (else (error "exhausted parser")))
-       )
-      (error "exhausted parser")
-      )
-    )
-  )
-
-                 
-#! evaluates input
-(define eval-cfae
-  (lambda (s_expr)
-    (interp-cfae (parse-cfae s_expr) (mtsub)) ;; in excerise 2 call elab before interpreter 
-    )
-  )
-
-;;excerise 2
-;; two grammaers 1. WCFAE 2.CFAE. Elab converts WCFAE to CFAE. WFAE: with => CFAE: app. WFAE: cond0 => CFAE: if0. No parsing. WCFAE is an abstract syntax.
-
 #! interpreter 
 (define interp-cfae
   (lambda (cfae ds)
@@ -108,8 +59,8 @@
                                     ds)))
              ))
       (if0 (c t e ) (if (equal? (num 0) (interp-cfae c ds))
-                        (interp-cfae t)
-                        (interp-cfae e)))
+                        (interp-cfae t ds)
+                        (interp-cfae e ds)))
       (fun (id body) (fun id body))
       (op (o) o)
       (id (v)(lookup-ds v ds))
@@ -117,6 +68,7 @@
     )
   )
 
+#! checks to make sure not apply arithmetic to a function
 (define check-arith-error
   (lambda (oper l r)
     (if (num? (and l r))
@@ -125,7 +77,6 @@
     )
   )
   )
-
 
 #! Looks up variable in DefrdSub list      
 (define lookup-ds
@@ -143,8 +94,15 @@
   )
 
 
-    
-(parse-cfae '(app (fun x (+ 1 x)) 3))
-;(eval-cfae '(app (fun x (+ 1 x)) 3))
-(eval-cfae '(+ 3 (fun x x)))
-(eval-cfae '(+ (fun x x) (fun x x)))
+;cases
+(test (interp-cfae (num 1) (mtsub)) (num 1)) ;num
+(test (interp-cfae (binop (op 'add) (num 1) (num 2)) (mtsub)) (num 3)) ;binop
+(test (interp-cfae (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub)) (fun 'x (binop (op 'add) (num 1) (id 'x)))) ;fun
+(test (interp-cfae (if0 (binop (op 'sub) (num 1) (num 1)) (num 3) (num 4)) (mtsub)) (num 3)) ;if0
+(test (interp-cfae (app (fun 'x (binop (op 'add) (num 1) (id 'x))) (num 2)) (mtsub)) (num 3)) ;app
+(test (interp-cfae (if0 (num 0) (if0 (num 1) (num 3) (num 4)) (num 5)) (mtsub)) (num 4)) ;nested ifs
+(test (interp-cfae (app (fun 'y (binop (op 'add) (id 'y) (num 1))) (app (fun 'x (binop (op 'add) (id 'x) (num 1))) (num 1))) (mtsub)) (num 3)) ;nested app
+;errors
+(test/exn (interp-cfae (id 'x) (mtsub)) "lookup: undefined id") ;id 
+(test/exn (interp-cfae (binop (op 'add) (num 1) (fun 'x (binop (op 'add) (num 1) (id 'x)))) (mtsub)) "cannot perform arithmetic on functions") ;can't apply arithmetic on function
+(test/exn (interp-cfae (app (num 1) (num 4)) (mtsub)) "not a function/can't apply to number") ;can't apply to number

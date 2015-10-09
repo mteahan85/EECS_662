@@ -28,10 +28,8 @@
   (wid (name symbol?))
   (wop (name symbol?))
 )
-;;figure out structure for cond in CFWAE. Once figured out, easy to convert over to CFAE
 
-
-#! Binding - for with
+#! Binding - for with & cond
 (define-type binding
   (with-bind (id symbol?) (bind-expr CFWAE?))
   (cond-bind (bind-c CFWAE?) (bind-e CFWAE?))
@@ -87,11 +85,8 @@
       )
     )
   )
-        
-
-;(cond0 ()* (else 'item)
-
-
+       
+#! Transform CFWAE cond to CFAE nest if0 statement
 (define create-if0
   (lambda (conds ed) ;list
     (if (empty? conds)
@@ -108,9 +103,6 @@
     (interp-cfae (elab-cfwae s_expr) prelude) ;; in excerise 2 call elab before interpreter 
     )
   )
-
-;;excerise 2
-;; two grammaers 1. WCFAE 2.CFAE. Elab converts WCFAE to CFAE. WFAE: with => CFAE: app. WFAE: cond0 => CFAE: if0. No parsing. WCFAE is an abstract syntax.
 
 #! interpreter 
 (define interp-cfae
@@ -137,6 +129,7 @@
     )
   )
 
+#! checks to make sure not apply arithmetic to a function
 (define check-arith-error
   (lambda (oper l r)
     (if (num? (and l r))
@@ -145,7 +138,6 @@
     )
   )
   )
-
 
 #! Looks up variable in DefrdSub list      
 (define lookup-ds
@@ -161,11 +153,25 @@
       )
     )
   )
- ;(if0 (num 0) (num 3) (if0 (num 0) (num 4) (num 5)))
-;cond structure
-;(cond '( (cond-bind (num 1) (num 3)) (cond-bind (num 2) (num 4)) (num 3))
-;(lookup-ds 'area prelude)
-;(interp-cfae (app (id 'inc) (id 'pi)) prelude)
-(elab-cfwae (wcond0 (list (cond-bind (wnum 0) (wnum 3)) (cond-bind (wnum 0) (wnum 4))) (wnum 5)))
-(interp-cfae (elab-cfwae (wcond0 (list (cond-bind (wnum 1) (wnum 3)) (cond-bind (wnum 1) (wnum 4))) (wnum 5))) prelude)
-(eval-cfae (wcond0 (list (cond-bind (wnum 1) (wnum 3)) (cond-bind (wnum 1) (wnum 4))) (wnum 5)))
+
+;cases
+(test (eval-cfae (wnum 1)) (num 1)) ;num
+(test (elab-cfwae (wid 'x)) (id 'x)) ;id
+(test (eval-cfae (wbinop (wop 'add) (wnum 1) (wnum 2))) (num 3)) ;binop
+(test (eval-cfae (wfun 'x (wbinop (wop 'add) (wnum 1) (wid 'x)))) (fun 'x (binop (op 'add) (num 1) (id 'x)))) ;fun
+(test (eval-cfae (wif0 (wbinop (wop 'sub) (wnum 1) (wnum 1)) (wnum 3) (wnum 4))) (num 3)) ;if0
+(test (eval-cfae (wapp (wfun 'x (wbinop (wop 'add) (wnum 1) (wid 'x))) (wnum 2))) (num 3)) ;app
+(test (eval-cfae (wif0 (wnum 0) (wif0 (wnum 1) (wnum 3) (wnum 4)) (wnum 5))) (num 4)) ;nested ifs
+(test (eval-cfae (wapp (wfun 'y (wbinop (wop 'add) (wid 'y) (wnum 1))) (wapp (wfun 'x (wbinop (wop 'add) (wid 'x) (wnum 1))) (wnum 1)))) (num 3)) ;nested app
+(test (eval-cfae (wcond0 (list (cond-bind (wnum 1) (wnum 3)) (cond-bind (wbinop (wop 'sub) (wnum 1) (wnum 1)) (wnum 4))) (wnum 5))) (num 4)) ;cond0
+(test (eval-cfae (wcond0 '() (wnum 5))) (num 5)) ;cond0 with only ed
+(test (eval-cfae (wcond0 '() (wif0 (wbinop (wop 'sub) (wnum 1) (wnum 1)) (wnum 3) (wnum 4)))) (num 3)) ;if0 within cond0
+(test (eval-cfae (wwith (with-bind 'x (wnum 1)) (wbinop (wop 'add) (wnum 1) (wid 'x)))) (num 2)) ;with  
+(test (eval-cfae (wwith (with-bind 'x (wnum 1)) (wwith (with-bind 'y (wnum 1)) (wbinop (wop 'add) (wid 'y) (wid 'x))))) (num 2)) ;nested with
+(test (eval-cfae (wapp (wfun 'x (wid 'x)) (wid 'pi))) (num 3.14159)) ;pi
+(test (eval-cfae (wapp (wid 'inc) (wnum 1))) (num 2)) ;inc
+(test (eval-cfae (wapp (wid 'area) (wnum 2))) (num 12.56636)) ;area
+;errors
+(test/exn (eval-cfae (wid 'x)) "lookup: undefined id") ;id 
+(test/exn (eval-cfae (wbinop (wop 'add) (wnum 1) (wfun 'x (wbinop (wop 'add) (wnum 1) (wid 'x))))) "cannot perform arithmetic on functions") ;can't apply arithmetic on function
+(test/exn (eval-cfae (wapp (wnum 1) (wnum 4))) "not a function/can't apply to number") ;can't apply to number
