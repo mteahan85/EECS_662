@@ -22,7 +22,8 @@
 #! CFWAES Value
 (define-type CFWAES-Value
   (numV (n number?))
-  (closureV (param symbol?) (body CFWAES?) (ds DefrdSub?)))
+  (closureV (param symbol?) (body CFWAES?) (ds DefrdSub?))
+  (boxV (location number?))) ;CFWAES-Value? potentially
         
 #! Value and Store
 (define-type ValueXStore
@@ -36,7 +37,7 @@
 #! Deferred Sub
 (define-type DefrdSub
   (mtsub)
-  (aSub (name symbol?) (value CFWAES-Value?) (ds DefrdSub?))
+  (aSub (name symbol?) (location number?) (ds DefrdSub?)) ;; should hold location not value
   )
 
 #! Store
@@ -72,38 +73,55 @@
 (define interp-cfwaes
   (lambda (cfwaes ds sto)
     (type-case CFWAES cfwaes
-      (num (n) (vxs (numV n)))
+      (num (n) (vxs (numV n) sto))
       (binop (bo l r) 
              (type-case ValueXStore (interp-cfwaes l ds sto)
                (vxs (v1 s1)
-                    (type-case ValueXStore (interp-cfwaes r ds s1)
+                    (type-case ValueXStore (interp-cfwaes r ds s1) 
                       (vxs (v2 s2)
-                           (vxs (numV (check-arith-error (lookup (op-name bo) binop-table) v1 v2 ))))))))
+                           (vxs (numV (check-arith-error (lookup (op-name bo) binop-table) v1 v2 )) s2))))))
       (app (fun_expr arg_expr)
            (let ([fun_val (interp-cfwaes fun_expr ds sto)])
-             (if (numV? fun_val) 
+             (if (numV? (vxs-value fun_val)) 
                  (error 'interp-cfwaes "not a function/can't apply to number")
-                 (interp-cfwaes (closureV-body fun_val) 
-                              (aSub (closureV-param fun_val)
-                                    (interp-cfwaes arg_expr ds)
-                                    (closureV-ds fun_val)) sto)
+                 (let([new_loc (next-location)])
+                   (let ([arg_val (interp-cfwaes arg_expr ds sto)])
+                   (interp-cfwaes (closureV-body (vxs-value fun_val)) 
+                                  (aSub (closureV-param (vxs-value fun_val))
+                                        new_loc
+                                        (closureV-ds (vxs-value fun_val)))
+                                  (aSto new_loc
+                                        (vxs-value arg_val)
+                                        (vxs-store arg_val)
+                                 ))))
              )))
-      (if0 (c t e ) (if (equal? (numV 0) (interp-cfwaes c ds sto))
+      (if0 (c t e ) (if (equal? (numV 0) (vxs-value (interp-cfwaes c ds sto))) ;; not evaulating correctly 
                         (interp-cfwaes t ds sto)
                         (interp-cfwaes e ds sto)))
       (with (bind body) 
             (interp-cfwaes (app (fun (with-binding-id bind) body) (with-binding-bind-expr bind)) ds sto))
-      (fun (id body) (closureV id body ds))
-      (assign (a c) (numV 1))
+      (fun (id body) (vxs (closureV id body ds) sto))
+      (assign (x expr) 
+              (type-case ValueXStore (interp-cfwaes expr ds sto)
+                (vxs (v1 s1)
+                     (vxs  v1 (aSto (lookup-loc x ds)
+                                    v1
+                                    s1))))) ;?? not returning a vxs
       (seq (e0 e1) 
            (type-case ValueXStore (interp-cfwaes e0 ds sto)
              (vxs (v_e0 s_e0)
-                  (interp-cfwae e1 ds s_e0))))
+                  (interp-cfwaes e1 ds s_e0))))
       (op (o) o)
-      (id (v)(lookup-ds v ds))
+      (id (v)(lookup-value v ds sto))
       )
     )
   )
+
+(define eval 
+  (lambda (cfwaes ds sto)
+    (vxs-value (interp-cfwaes cfwaes ds sto))))
+           
+
 
 #! Sets the next memory location
 (define next-location
@@ -123,31 +141,63 @@
   )
   )
 
-#! Looks up variable in DefrdSub list      
-(define lookup-ds
-  (lambda (name ds)
+#! Looks up value
+(define lookup-value
+  (lambda (name ds sto)
     (type-case DefrdSub ds
       (mtsub () (error 'lookup "undefined id"))
       (aSub (bound_name bound_value rest_ds)
-            (if (symbol=? name bound_name)
-                bound_value
-                (lookup-ds name rest_ds)
+            (if (symbol=? name bound_name) ;;issued caused somewhere in here -- returning the locatoin and not the value
+                (lookup-sto bound_value sto)
+                (lookup-value name rest_ds sto)
+                )
+            )
+      )
+    )
+  )
+#! Looks up variable location
+(define lookup-sto
+  (lambda (loc sto)
+    (type-case Store sto
+      (mtsto () (error 'lookup-sto "undefined id"))
+      (aSto (sto_loc sto_value rest_sto)
+            (if (equal? loc sto_loc)
+                (vxs sto_value sto)
+                (lookup-sto loc rest_sto)
                 )
             )
       )
     )
   )
 
+
+(define lookup-loc
+  (lambda (name ds)
+    (type-case DefrdSub ds
+      (mtsub () (error 'lookup "undefined id"))
+      (aSub (bound_name bound_value rest_ds)
+            (if (symbol=? name bound_name) ;;issued caused somewhere in here -- returning the locatoin and not the value
+                bound_value
+                (lookup-loc name rest_ds)
+                )
+            )
+      )
+    )
+  )
+
+
+
+
 ;cases
-;(test (interp-cfwaes (num 1) (mtsub) (mtsto)) (numV 1)) ;num
-;(test (interp-cfwaes (binop (op 'add) (num 1) (num 2)) (mtsub) (mtsto)) (numV 3)) ;binop
-;(test (interp-cfwaes (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (closureV 'x (binop (op 'add) (num 1) (id 'x)) (mtsub))) ;fun
-;(test (interp-cfwaes (if0 (binop (op 'sub) (num 1) (num 1)) (num 3) (num 4)) (mtsub) (mtsto)) (numV 3)) ;if0
-; (test (interp-cfwaes (app (fun 'x (binop (op 'add) (num 1) (id 'x))) (num 2)) (mtsub) (mtsto)) (numV 3)) ;app
-; (test (interp-cfwaes (with (with-binding 'x (num 2)) (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (numV 3)) ;with
-;(test (interp-cfwaes (if0 (num 0) (if0 (num 1) (num 3) (num 4)) (num 5)) (mtsub) (mtsto)) (numV 4)) ;nested ifs
-; (test (interp-cfwaes (app (fun 'y (binop (op 'add) (id 'y) (num 1))) (app (fun 'x (binop (op 'add) (id 'x) (num 1))) (num 1))) (mtsub) (mtsto)) (numV 3)) ;nested app
+(test (eval (num 1) (mtsub) (mtsto)) (numV 1)) ;num
+(test (eval (binop (op 'add) (num 1) (num 2)) (mtsub) (mtsto)) (numV 3)) ;binop
+(test (eval (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (closureV 'x (binop (op 'add) (num 1) (id 'x)) (mtsub))) ;fun
+(test (eval (if0 (binop (op 'sub) (num 1) (num 1)) (num 3) (num 4)) (mtsub) (mtsto)) (numV 3)) ;if0
+ (test (eval (app (fun 'x (binop (op 'add) (num 1) (id 'x))) (num 2)) (mtsub) (mtsto)) (numV 3)) ;app
+ (test (eval (with (with-binding 'x (num 2)) (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (numV 3)) ;with
+(test (eval (if0 (num 0) (if0 (num 1) (num 3) (num 4)) (num 5)) (mtsub) (mtsto)) (numV 4)) ;nested ifs
+ (test (eval (app (fun 'y (binop (op 'add) (id 'y) (num 1))) (app (fun 'x (binop (op 'add) (id 'x) (num 1))) (num 1))) (mtsub) (mtsto)) (numV 3)) ;nested app
 ;errors
-;(test/exn (interp-cfwaes (id 'x) (mtsub) (mtsto)) "lookup: undefined id") ;id 
-;(test/exn (interp-cfwaes (binop (op 'add) (num 1) (fun 'x (binop (op 'add) (num 1) (id 'x)))) (mtsub) (mtsto)) "cannot perform arithmetic on functions") ;can't apply arithmetic on function
-;(test/exn (interp-cfwaes (app (num 1) (num 4)) (mtsub) (mtsto)) "not a function/can't apply to number") ;can't apply to number
+(test/exn (interp-cfwaes (id 'x) (mtsub) (mtsto)) "lookup: undefined id") ;id 
+(test/exn (interp-cfwaes (binop (op 'add) (num 1) (fun 'x (binop (op 'add) (num 1) (id 'x)))) (mtsub) (mtsto)) "cannot perform arithmetic on functions") ;can't apply arithmetic on function
+(test/exn (interp-cfwaes (app (num 1) (num 4)) (mtsub) (mtsto)) "not a function/can't apply to number") ;can't apply to number
