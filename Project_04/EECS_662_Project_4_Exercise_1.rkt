@@ -283,7 +283,7 @@
 ;My Test Cases
 (test (eval-interp (num 1) (mtsub) (mtsto)) (numV 1)) ;num
 (test (eval-interp (binop (op 'add) (num 1) (num 2)) (mtsub) (mtsto)) (numV 3)) ;binop
-;;;(test (eval-interp (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (closureV 'x (binop (op 'add) (num 1) (id 'x)))) ;fun
+(test (eval-interp (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (closureV 'x (binop (op 'add) (num 1) (id 'x)) (mtsub))) ;fun
 (test (eval-interp (if0 (binop (op 'sub) (num 1) (num 1)) (num 3) (num 4)) (mtsub) (mtsto)) (numV 3)) ;if0
 (test (eval-interp (app (fun 'x (binop (op 'add) (num 1) (id 'x))) (num 2)) (mtsub) (mtsto)) (numV 3)) ;app
 (test (eval-interp (with (with-binding 'x (num 2)) (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (numV 3)) ;with
