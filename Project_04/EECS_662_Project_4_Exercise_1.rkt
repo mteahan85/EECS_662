@@ -69,6 +69,58 @@
                      (binopr-op (car op-table))
                      (lookup op-name (cdr op-table)))))))
 
+
+#! parser
+(define parse-cfwaes
+    (lambda (s_expr)
+    (cond
+      ((number? s_expr) (num s_expr))
+      ((symbol? s_expr) (id s_expr))
+      ((list? s_expr)
+       (case (car s_expr)
+         ((+) (binop
+               (op `add)
+               (parse-cfwaes (cadr s_expr))
+               (parse-cfwaes (caddr s_expr))))
+         ((-) (binop
+               (op `sub) 
+               (parse-cfwaes (cadr s_expr))
+               (parse-cfwaes (caddr s_expr))))
+         ((*) (binop
+               (op `mult)
+               (parse-cfwaes (cadr s_expr))
+               (parse-cfwaes (caddr s_expr))))
+         ((/) (binop
+               (op `div)
+               (parse-cfwaes (cadr s_expr))
+               (parse-cfwaes (caddr s_expr))))
+         ((with) (with (parse-bind (cadr s_expr))
+                       (parse-cfwaes (caddr s_expr))))
+         ((fun) (fun (cadr s_expr) 
+                     (parse-cfwaes (caddr s_expr))))
+         ((if0) (if0 (parse-cfwaes  (cadr s_expr))
+                     (parse-cfwaes (caddr s_expr))
+                     (parse-cfwaes (cadddr s_expr))))
+         ((seq) (seq (parse-cfwaes (cadr s_expr))
+                     (parse-cfwaes (caddr s_expr))))
+         ((assign) (assign (cadr s_expr)
+                           (parse-cfwaes (caddr s_expr))))
+         (else (app (parse-cfwaes (car s_expr))
+                  (parse-cfwaes (cadr s_expr)))))
+       )
+      (error "exhausted parser")
+      )
+    )
+  ) 
+
+#! parse binding
+(define parse-bind
+  (lambda (bind)
+    (with-binding (car bind) (parse-cfwaes (cadr bind)))
+    )
+  )
+
+
 #! interpreter 
 (define interp-cfwaes
   (lambda (cfwaes ds sto)
@@ -117,12 +169,7 @@
     )
   )
 
-(define eval 
-  (lambda (cfwaes ds sto)
-    (vxs-value (interp-cfwaes cfwaes ds sto))))
-           
-
-
+          
 #! Sets the next memory location
 (define next-location
   (local ((define loc (box 0)))
@@ -148,7 +195,7 @@
       (mtsub () (error 'lookup "undefined id"))
       (aSub (bound_name bound_value rest_ds)
             (if (symbol=? name bound_name) ;;issued caused somewhere in here -- returning the locatoin and not the value
-                (lookup-sto bound_value sto)
+                (lookup-sto bound_value sto sto)
                 (lookup-value name rest_ds sto)
                 )
             )
@@ -157,13 +204,13 @@
   )
 #! Looks up variable location
 (define lookup-sto
-  (lambda (loc sto)
+  (lambda (loc sto total_store)
     (type-case Store sto
       (mtsto () (error 'lookup-sto "undefined id"))
       (aSto (sto_loc sto_value rest_sto)
             (if (equal? loc sto_loc)
-                (vxs sto_value sto)
-                (lookup-sto loc rest_sto)
+                (vxs sto_value total_store)
+                (lookup-sto loc rest_sto total_store)
                 )
             )
       )
@@ -186,18 +233,63 @@
   )
 
 
+#! Parses and Interprets
+(define eval-cfwaes 
+  (lambda (cfwaes)
+    (eval-interp (parse-cfwaes cfwaes) (mtsub) (mtsto))))
+
+#! Takes intepretation and pulls out numV
+(define eval-interp 
+  (lambda (cfwaes ds sto)
+    (vxs-value (interp-cfwaes cfwaes ds sto))))
 
 
-;cases
-(test (eval (num 1) (mtsub) (mtsto)) (numV 1)) ;num
-(test (eval (binop (op 'add) (num 1) (num 2)) (mtsub) (mtsto)) (numV 3)) ;binop
-(test (eval (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (closureV 'x (binop (op 'add) (num 1) (id 'x)) (mtsub))) ;fun
-(test (eval (if0 (binop (op 'sub) (num 1) (num 1)) (num 3) (num 4)) (mtsub) (mtsto)) (numV 3)) ;if0
- (test (eval (app (fun 'x (binop (op 'add) (num 1) (id 'x))) (num 2)) (mtsub) (mtsto)) (numV 3)) ;app
- (test (eval (with (with-binding 'x (num 2)) (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (numV 3)) ;with
-(test (eval (if0 (num 0) (if0 (num 1) (num 3) (num 4)) (num 5)) (mtsub) (mtsto)) (numV 4)) ;nested ifs
- (test (eval (app (fun 'y (binop (op 'add) (id 'y) (num 1))) (app (fun 'x (binop (op 'add) (id 'x) (num 1))) (num 1))) (mtsub) (mtsto)) (numV 3)) ;nested app
+;Perry Applicable Test Cases From Project 3
+(test (eval-cfwaes '{{fun x {+ 1 3}} 1}) (numV 4))
+(test (eval-cfwaes '{with {y 1} {{fun x {+ y x}} 3}}) (numV 4))
+(test (eval-cfwaes '{with {y 1} {with {f {fun x {+ y x}}} {f 3}}}) (numV 4))
+(test (eval-cfwaes '{with {y 1} {with {f {fun x {+ y x}}} {with {y 100} {f 3}}}}) (numV 4))
+(test (eval-cfwaes '{{fun x {+ 1 3}} 1}) (numV 4))
+
+;Perry Test Cases For Project 4
+(test (eval-cfwaes '{with {y 0}
+                       {with {inc {fun x {+ x 1}}}
+                         {seq {seq {assign y {inc y}}
+                                   {assign y {inc y}}}
+                              {seq {assign y {inc y}}
+                                   {assign y {inc y}}}}}}) (numV 4))
+(test (eval-cfwaes '{with {y 1}
+                       {with {inc {fun x {+ x y}}}
+                         {inc 3}}}) (numV 4))
+(test (eval-cfwaes '{with {y 1}
+                       {with {inc {fun x {+ x y}}}
+                         {seq {assign y 2} {inc 3}}}}) (numV 5))
+(test (eval-cfwaes '{with {y 1}
+                       {with {inc {seq {assign y 2} {fun x {+ x y}}}}
+                         {inc 3}}}) (numV 5))
+(test (eval-cfwaes '{with {x 3}
+                       {seq x {assign x {+ x 1}}}}) (numV 4))
+(test (eval-cfwaes '{with {x 3}
+                       {seq
+                         {assign x {+ x 1}} {assign x {+ x 1}}}}) (numV 5))
+(test (eval-cfwaes '{with {x 3}
+                       {seq
+                        {seq
+                         {assign x {+ x 1}} {assign x {+ x 1}}}
+                        {assign x {+ x 1}}}}) (numV 6))
+
+
+
+;My Test Cases
+(test (eval-interp (num 1) (mtsub) (mtsto)) (numV 1)) ;num
+(test (eval-interp (binop (op 'add) (num 1) (num 2)) (mtsub) (mtsto)) (numV 3)) ;binop
+;;;(test (eval-interp (fun 'x (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (closureV 'x (binop (op 'add) (num 1) (id 'x)))) ;fun
+(test (eval-interp (if0 (binop (op 'sub) (num 1) (num 1)) (num 3) (num 4)) (mtsub) (mtsto)) (numV 3)) ;if0
+(test (eval-interp (app (fun 'x (binop (op 'add) (num 1) (id 'x))) (num 2)) (mtsub) (mtsto)) (numV 3)) ;app
+(test (eval-interp (with (with-binding 'x (num 2)) (binop (op 'add) (num 1) (id 'x))) (mtsub) (mtsto)) (numV 3)) ;with
+(test (eval-interp (if0 (num 0) (if0 (num 1) (num 3) (num 4)) (num 5)) (mtsub) (mtsto)) (numV 4)) ;nested ifs
+(test (eval-interp (app (fun 'y (binop (op 'add) (id 'y) (num 1))) (app (fun 'x (binop (op 'add) (id 'x) (num 1))) (num 1))) (mtsub) (mtsto)) (numV 3)) ;nested app
 ;errors
-(test/exn (interp-cfwaes (id 'x) (mtsub) (mtsto)) "lookup: undefined id") ;id 
-(test/exn (interp-cfwaes (binop (op 'add) (num 1) (fun 'x (binop (op 'add) (num 1) (id 'x)))) (mtsub) (mtsto)) "cannot perform arithmetic on functions") ;can't apply arithmetic on function
-(test/exn (interp-cfwaes (app (num 1) (num 4)) (mtsub) (mtsto)) "not a function/can't apply to number") ;can't apply to number
+(test/exn (eval-interp (id 'x) (mtsub) (mtsto)) "lookup: undefined id") ;id 
+(test/exn (eval-interp (binop (op 'add) (num 1) (fun 'x (binop (op 'add) (num 1) (id 'x)))) (mtsub) (mtsto)) "cannot perform arithmetic on functions") ;can't apply arithmetic on function
+(test/exn (eval-interp (app (num 1) (num 4)) (mtsub) (mtsto)) "not a function/can't apply to number") ;can't apply to number
